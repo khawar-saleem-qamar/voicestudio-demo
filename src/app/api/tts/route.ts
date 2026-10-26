@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { TTS_TIMEOUT_MS, TTS_TIMEOUT_SECONDS } from "@/lib/timeouts";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const maxDuration = TTS_TIMEOUT_SECONDS;
+// Must be a numeric literal for Next.js segment config validation.
+export const maxDuration = 600;
 
 const VOICESTUDIO_URL =
   process.env.VOICESTUDIO_URL?.replace(/\/$/, "") ||
