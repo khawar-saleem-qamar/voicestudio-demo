@@ -1,69 +1,222 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+
+type LanguageOption = {
+  code: string;
+  label: string;
+  sample: string;
+  dir?: "ltr" | "rtl";
+};
+
+const LANGUAGES: LanguageOption[] = [
+  {
+    code: "en",
+    label: "English",
+    sample: "Hello from VoiceStudio. This is a test of the deployed API.",
+  },
+  {
+    code: "ur",
+    label: "Urdu",
+    sample: "وائس اسٹوڈیو سے سلام۔ یہ تعیناتی کا ایک ٹیسٹ ہے۔",
+    dir: "rtl",
+  },
+  {
+    code: "pa",
+    label: "Punjabi",
+    sample: "وائس اسٹوڈیو توں سلام۔ ایہہ تعیناتی دا اک ٹیسٹ اے۔",
+    dir: "rtl",
+  },
+  {
+    code: "skr",
+    label: "Saraiki",
+    sample: "وائس سٹوڈیو کنوں سلام۔ ایہ تعیناتی دا ہک ٹیسٹ ہے۔",
+    dir: "rtl",
+  },
+  {
+    code: "sd",
+    label: "Sindhi",
+    sample: "وائس اسٽوڊيو مان سلام۔ هي تعیناتي جو هڪ ٽيسٽ آهي۔",
+    dir: "rtl",
+  },
+];
 
 export default function Home() {
+  const [language, setLanguage] = useState("en");
+  const [text, setText] = useState(LANGUAGES[0].sample);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [health, setHealth] = useState<string>("checking…");
+
+  const selected = useMemo(
+    () => LANGUAGES.find((l) => l.code === language) || LANGUAGES[0],
+    [language],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/health")
+      .then(async (res) => {
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.ok) {
+          const device = data.health?.device || "unknown device";
+          const version = data.health?.version || "?";
+          setHealth(`online · v${version} · ${device}`);
+        } else {
+          setHealth(`offline · ${data.error || `HTTP ${data.upstreamStatus}`}`);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setHealth(`offline · ${err.message}`);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+    };
+  }, [audioUrl]);
+
+  function onLanguageChange(code: string) {
+    const next = LANGUAGES.find((l) => l.code === code);
+    setLanguage(code);
+    if (next) setText(next.sample);
+    setError(null);
+  }
+
+  async function generateVoice() {
+    setLoading(true);
+    setError(null);
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+      setAudioUrl(null);
+    }
+
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          language,
+          format: "mp3",
+        }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        throw new Error(
+          payload?.detail ||
+            payload?.error ||
+            `Request failed with status ${res.status}`,
+        );
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      setAudioUrl(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Generation failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col px-5 py-10 sm:px-8">
+      <header className="mb-8">
+        <p className="mb-2 text-sm tracking-wide text-[var(--ink-muted)] uppercase">
+          Local deployment tester
+        </p>
+        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+          VoiceStudio Test Client
+        </h1>
+        <p className="mt-3 max-w-2xl text-[var(--ink-muted)]">
+          Select a language, paste text, and generate speech against{" "}
+          <span className="font-medium text-[var(--foreground)]">
+            voicestudio.voguemirror.com
+          </span>
+          .
+        </p>
+        <p className="mt-3 inline-flex rounded-full bg-[var(--accent-soft)] px-3 py-1 text-sm text-[var(--accent)]">
+          Backend: {health}
+        </p>
+      </header>
+
+      <section className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 shadow-sm sm:p-7">
+        <label className="mb-2 block text-sm font-medium">Language</label>
+        <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {LANGUAGES.map((lang) => {
+            const active = lang.code === language;
+            return (
+              <button
+                key={lang.code}
+                type="button"
+                onClick={() => onLanguageChange(lang.code)}
+                className={`rounded-xl border px-3 py-2 text-sm transition ${
+                  active
+                    ? "border-[var(--accent)] bg-[var(--accent)] text-white"
+                    : "border-[var(--line)] bg-white text-[var(--foreground)] hover:border-[var(--accent)]"
+                }`}
+              >
+                {lang.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <label className="mb-2 block text-sm font-medium" htmlFor="tts-text">
+          Text
+        </label>
+        <textarea
+          id="tts-text"
+          value={text}
+          dir={selected.dir || "ltr"}
+          onChange={(e) => setText(e.target.value)}
+          rows={7}
+          className="mb-2 w-full rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-base outline-none ring-[var(--accent)] focus:ring-2"
+          placeholder="Paste text to speak…"
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+        <p className="mb-6 text-xs text-[var(--ink-muted)]">
+          {text.length} / 4096 characters
+        </p>
+
+        <button
+          type="button"
+          onClick={generateVoice}
+          disabled={loading || !text.trim()}
+          className="inline-flex items-center justify-center rounded-xl bg-[var(--accent)] px-5 py-3 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {loading ? "Generating voice…" : "Generate voice"}
+        </button>
+
+        {error ? (
+          <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-[var(--danger)]">
+            {error}
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+        ) : null}
+
+        {audioUrl ? (
+          <div className="mt-6 rounded-xl border border-[var(--line)] bg-white p-4">
+            <p className="mb-3 text-sm font-medium">Generated audio</p>
+            <audio controls autoPlay src={audioUrl} className="w-full">
+              Your browser does not support the audio element.
+            </audio>
+            <a
+              href={audioUrl}
+              download={`voicestudio-${language}.mp3`}
+              className="mt-3 inline-block text-sm text-[var(--accent)] underline"
+            >
+              Download MP3
+            </a>
+          </div>
+        ) : null}
+      </section>
+    </main>
   );
 }
