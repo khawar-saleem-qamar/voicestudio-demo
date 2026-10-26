@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { TTS_TIMEOUT_MS } from "@/lib/timeouts";
 
 type LanguageOption = {
   code: string;
@@ -45,14 +46,28 @@ export default function Home() {
   const [language, setLanguage] = useState("en");
   const [text, setText] = useState(LANGUAGES[0].sample);
   const [loading, setLoading] = useState(false);
+  const [elapsedSec, setElapsedSec] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [health, setHealth] = useState<string>("checking…");
+  const abortRef = useRef<AbortController | null>(null);
 
   const selected = useMemo(
     () => LANGUAGES.find((l) => l.code === language) || LANGUAGES[0],
     [language],
   );
+
+  useEffect(() => {
+    if (!loading) {
+      setElapsedSec(0);
+      return;
+    }
+    const started = Date.now();
+    const id = window.setInterval(() => {
+      setElapsedSec(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [loading]);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,6 +105,11 @@ export default function Home() {
   }
 
   async function generateVoice() {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const timeoutId = window.setTimeout(() => controller.abort(), TTS_TIMEOUT_MS);
+
     setLoading(true);
     setError(null);
     if (audioUrl) {
@@ -106,6 +126,7 @@ export default function Home() {
           language,
           format: "mp3",
         }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -121,8 +142,16 @@ export default function Home() {
       const url = URL.createObjectURL(blob);
       setAudioUrl(url);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Generation failed");
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setError(
+          `Timed out after ${Math.floor(TTS_TIMEOUT_MS / 60000)} minutes. CPU TTS can be slow — wait longer with shorter text, or use a GPU instance.`,
+        );
+      } else {
+        setError(err instanceof Error ? err.message : "Generation failed");
+      }
     } finally {
+      window.clearTimeout(timeoutId);
+      if (abortRef.current === controller) abortRef.current = null;
       setLoading(false);
     }
   }
@@ -192,8 +221,16 @@ export default function Home() {
           disabled={loading || !text.trim()}
           className="inline-flex items-center justify-center rounded-xl bg-[var(--accent)] px-5 py-3 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {loading ? "Generating voice…" : "Generate voice"}
+          {loading
+            ? `Generating voice… ${elapsedSec}s (CPU can take 2–5 min)`
+            : "Generate voice"}
         </button>
+        {loading ? (
+          <p className="mt-3 text-sm text-[var(--ink-muted)]">
+            Please keep this tab open. On CPU, generation often takes a few
+            minutes and will not time out until 10 minutes.
+          </p>
+        ) : null}
 
         {error ? (
           <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-[var(--danger)]">

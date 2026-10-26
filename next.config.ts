@@ -1,9 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
   cacheComponents: true,
   partialPrefetching: true,
+  // Allow long-running TTS proxy requests (CPU can take several minutes).
+  experimental: {
+    proxyTimeout: 10 * 60 * 1000,
+  },
   turbopack: {
     rules: {
       "*.css": {

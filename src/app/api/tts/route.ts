@@ -1,4 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { TTS_TIMEOUT_MS, TTS_TIMEOUT_SECONDS } from "@/lib/timeouts";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = TTS_TIMEOUT_SECONDS;
 
 const VOICESTUDIO_URL =
   process.env.VOICESTUDIO_URL?.replace(/\/$/, "") ||
@@ -52,22 +57,42 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const upstream = await fetch(`${VOICESTUDIO_URL}/v1/audio/speech`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${API_KEY}`,
-      "Content-Type": "application/json",
-      Accept: "*/*",
-    },
-    body: JSON.stringify({
-      model: "omnivoice",
-      voice,
-      input: text,
-      language,
-      response_format: format,
-      speed: 1.0,
-    }),
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetch(`${VOICESTUDIO_URL}/v1/audio/speech`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${API_KEY}`,
+        "Content-Type": "application/json",
+        Accept: "*/*",
+      },
+      body: JSON.stringify({
+        model: "omnivoice",
+        voice,
+        input: text,
+        language,
+        response_format: format,
+        speed: 1.0,
+      }),
+      // CPU inference can take several minutes.
+      signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
+      cache: "no-store",
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Upstream request failed";
+    const timedOut =
+      (err instanceof Error && err.name === "TimeoutError") ||
+      /aborted|timeout/i.test(message);
+
+    return NextResponse.json(
+      {
+        error: timedOut
+          ? `VoiceStudio TTS timed out after ${TTS_TIMEOUT_SECONDS}s. Try shorter text or a GPU instance.`
+          : message,
+      },
+      { status: 504 },
+    );
+  }
 
   if (!upstream.ok) {
     const detail = await upstream.text().catch(() => "");
