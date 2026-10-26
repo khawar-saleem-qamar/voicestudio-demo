@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { TTS_TIMEOUT_MS, TTS_TIMEOUT_SECONDS } from "@/lib/timeouts";
 
-// Must be a numeric literal for Next.js segment config validation.
-export const maxDuration = 600;
+// Vercel Hobby allows maxDuration up to 300 seconds.
+export const maxDuration = 300;
 
 const VOICESTUDIO_URL =
   process.env.VOICESTUDIO_URL?.replace(/\/$/, "") ||
